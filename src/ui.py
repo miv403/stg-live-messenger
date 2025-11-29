@@ -3,6 +3,8 @@ from tkinter import filedialog
 from pathlib import Path
 from PIL import Image
 import os
+import threading
+from client import Client
 
 
 class LoginScreen:
@@ -20,7 +22,13 @@ class LoginScreen:
         self.register_mode = False
         self.selected_image_path = None
         
+        # Initialize client for service discovery
+        self.client = Client()
+        
         self.setup_ui()
+        
+        # Start server discovery in background thread
+        self.discover_servers()
     
     def center_window(self):
         """Center the window on the screen"""
@@ -221,6 +229,22 @@ class LoginScreen:
         
         # Add initial log message
         self.add_log("Client started. Ready to connect.")
+    
+    def discover_servers(self):
+        """Discover servers in a background thread to avoid blocking UI."""
+        def discover():
+            self.add_log("Discovering servers on LAN...")
+            servers = self.client.discover_servers(timeout=5)
+            # Update UI from main thread
+            self.root.after(0, lambda: self.update_server_list(servers))
+            if servers:
+                self.root.after(0, lambda: self.add_log(f"Found {len(servers)} server(s)"))
+            else:
+                self.root.after(0, lambda: self.add_log("No servers found on LAN"))
+        
+        # Start discovery in background thread
+        thread = threading.Thread(target=discover, daemon=True)
+        thread.start()
     
     def add_log(self, message):
         """Add a log message to the logs container"""
