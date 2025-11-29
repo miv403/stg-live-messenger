@@ -1,13 +1,15 @@
 import customtkinter as ctk
 from tkinter import filedialog
 from pathlib import Path
+from PIL import Image
+import os
 
 
 class LoginScreen:
     def __init__(self):
         self.root = ctk.CTk()
-        self.root.title("Encrypted Mail - Login")
-        self.root.geometry("400x500")
+        self.root.title("STG Live Messenger")
+        self.root.geometry("900x600")
         
         # Center the window
         self.center_window()
@@ -30,31 +32,62 @@ class LoginScreen:
         self.root.geometry(f"{width}x{height}+{x}+{y}")
     
     def setup_ui(self):
-        """Setup the login/register UI"""
+        """Setup the main UI with three containers"""
         # Main container with padding
         main_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        main_frame.pack(fill="both", expand=True, padx=40, pady=40)
+        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Left container - Login/Register
+        self.setup_login_container(main_frame)
+        
+        # Right container - Server Status and Logs
+        self.setup_right_containers(main_frame)
+    
+    def setup_login_container(self, parent):
+        """Setup the left container for login/register"""
+        login_frame = ctk.CTkFrame(parent, width=350)
+        login_frame.pack(side="left", fill="both", padx=(0, 10), pady=0)
+        login_frame.pack_propagate(False)
+        
+        # Inner frame with padding
+        inner_frame = ctk.CTkFrame(login_frame, fg_color="transparent")
+        inner_frame.pack(fill="both", expand=True, padx=30, pady=30)
+        
+        # Logo
+        logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "lib", "logo.png")
+        if os.path.exists(logo_path):
+            logo_image = ctk.CTkImage(
+                light_image=Image.open(logo_path),
+                dark_image=Image.open(logo_path),
+                size=(120, 120)
+            )
+            logo_label = ctk.CTkLabel(
+                inner_frame,
+                image=logo_image,
+                text=""
+            )
+            logo_label.pack(pady=(0, 15))
         
         # Title
-        title_label = ctk.CTkLabel(
-            main_frame,
-            text="Encrypted Mail",
-            font=ctk.CTkFont(size=28, weight="bold")
-        )
-        title_label.pack(pady=(0, 30))
+        # title_label = ctk.CTkLabel(
+        #     inner_frame,
+        #     text="STG Live Messenger",
+        #     font=ctk.CTkFont(size=24, weight="bold")
+        # )
+        # title_label.pack(pady=(0, 30))
         
         # Username field
         username_label = ctk.CTkLabel(
-            main_frame,
+            inner_frame,
             text="Username",
             font=ctk.CTkFont(size=12)
         )
         username_label.pack(anchor="w", pady=(0, 5))
         
         username_entry = ctk.CTkEntry(
-            main_frame,
+            inner_frame,
             textvariable=self.username_var,
-            width=320,
+            width=290,
             height=40,
             font=ctk.CTkFont(size=14)
         )
@@ -62,16 +95,16 @@ class LoginScreen:
         
         # Password field
         password_label = ctk.CTkLabel(
-            main_frame,
+            inner_frame,
             text="Password",
             font=ctk.CTkFont(size=12)
         )
         password_label.pack(anchor="w", pady=(0, 5))
         
         password_entry = ctk.CTkEntry(
-            main_frame,
+            inner_frame,
             textvariable=self.password_var,
-            width=320,
+            width=290,
             height=40,
             show="*",
             font=ctk.CTkFont(size=14)
@@ -80,9 +113,9 @@ class LoginScreen:
         
         # Login button
         self.login_button = ctk.CTkButton(
-            main_frame,
+            inner_frame,
             text="Login",
-            width=320,
+            width=290,
             height=40,
             font=ctk.CTkFont(size=14, weight="bold"),
             command=self.on_login_click
@@ -91,9 +124,9 @@ class LoginScreen:
         
         # Register button
         self.register_button = ctk.CTkButton(
-            main_frame,
+            inner_frame,
             text="Register",
-            width=320,
+            width=290,
             height=40,
             font=ctk.CTkFont(size=14),
             fg_color="transparent",
@@ -104,9 +137,9 @@ class LoginScreen:
         
         # File dialog button (hidden initially)
         self.file_button = ctk.CTkButton(
-            main_frame,
+            inner_frame,
             text="Select Profile Picture",
-            width=320,
+            width=290,
             height=40,
             font=ctk.CTkFont(size=14),
             fg_color="transparent",
@@ -121,12 +154,134 @@ class LoginScreen:
         self.username_entry = username_entry
         self.password_entry = password_entry
     
+    def setup_right_containers(self, parent):
+        """Setup the right containers for server status and logs"""
+        right_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        right_frame.pack(side="right", fill="both", expand=True, padx=(10, 0), pady=0)
+        
+        # Server Status container (top)
+        self.setup_server_status_container(right_frame)
+        
+        # Logs container (bottom)
+        self.setup_logs_container(right_frame)
+    
+    def setup_server_status_container(self, parent):
+        """Setup the server status container with a list"""
+        status_frame = ctk.CTkFrame(parent)
+        status_frame.pack(fill="both", expand=True, pady=(0, 10))
+        
+        # Title
+        status_title = ctk.CTkLabel(
+            status_frame,
+            text="Server Status",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        status_title.pack(pady=(15, 10), padx=15, anchor="w")
+        
+        # Scrollable frame for server list
+        scrollable_frame = ctk.CTkScrollableFrame(
+            status_frame,
+            fg_color="transparent"
+        )
+        scrollable_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        
+        # Store reference for updating server list later
+        self.server_list_frame = scrollable_frame
+        
+        # Placeholder text
+        placeholder_label = ctk.CTkLabel(
+            scrollable_frame,
+            text="No servers found on LAN",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        placeholder_label.pack(pady=10)
+        self.server_placeholder = placeholder_label
+    
+    def setup_logs_container(self, parent):
+        """Setup the logs container"""
+        logs_frame = ctk.CTkFrame(parent)
+        logs_frame.pack(fill="both", expand=True, pady=(10, 0))
+        
+        # Title
+        logs_title = ctk.CTkLabel(
+            logs_frame,
+            text="Logs",
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        logs_title.pack(pady=(15, 10), padx=15, anchor="w")
+        
+        # Text widget for logs (read-only)
+        self.logs_text = ctk.CTkTextbox(
+            logs_frame,
+            font=ctk.CTkFont(size=11),
+            state="disabled"
+        )
+        self.logs_text.pack(fill="both", expand=True, padx=15, pady=(0, 15))
+        
+        # Add initial log message
+        self.add_log("Client started. Ready to connect.")
+    
+    def add_log(self, message):
+        """Add a log message to the logs container"""
+        self.logs_text.configure(state="normal")
+        self.logs_text.insert("end", f"{message}\n")
+        self.logs_text.see("end")
+        self.logs_text.configure(state="disabled")
+    
+    def update_server_list(self, servers):
+        """Update the server list in the server status container
+        
+        Args:
+            servers: List of server dictionaries with keys like 'name', 'address', 'port', etc.
+        """
+        # Clear existing items
+        for widget in self.server_list_frame.winfo_children():
+            widget.destroy()
+        
+        if not servers:
+            # Show placeholder if no servers
+            placeholder_label = ctk.CTkLabel(
+                self.server_list_frame,
+                text="No servers found on LAN",
+                font=ctk.CTkFont(size=12),
+                text_color="gray"
+            )
+            placeholder_label.pack(pady=10)
+            self.server_placeholder = placeholder_label
+        else:
+            # Display each server
+            for server in servers:
+                server_item = ctk.CTkFrame(self.server_list_frame, fg_color="transparent")
+                server_item.pack(fill="x", pady=5, padx=5)
+                
+                # Server name/ID
+                name_label = ctk.CTkLabel(
+                    server_item,
+                    text=server.get('name', 'Unknown'),
+                    font=ctk.CTkFont(size=13, weight="bold"),
+                    anchor="w"
+                )
+                name_label.pack(anchor="w", pady=(0, 2))
+                
+                # Server address and port
+                address_text = f"{server.get('address', 'N/A')}:{server.get('port', 'N/A')}"
+                address_label = ctk.CTkLabel(
+                    server_item,
+                    text=address_text,
+                    font=ctk.CTkFont(size=11),
+                    text_color="gray",
+                    anchor="w"
+                )
+                address_label.pack(anchor="w")
+    
     def on_login_click(self):
         """Handle login button click"""
         username = self.username_var.get()
         password = self.password_var.get()
         
         # TODO: Implement login functionality
+        self.add_log(f"Login attempt: {username}")
         print(f"Login attempt: {username}")
     
     def on_register_click(self):
@@ -140,6 +295,7 @@ class LoginScreen:
             # Show file dialog button
             self.file_button.pack(pady=(0, 10))
             self.file_button.configure(state="normal")
+            self.add_log("Registration mode activated")
         else:
             # Already in register mode, submit registration
             self.on_register_submit()
@@ -150,6 +306,7 @@ class LoginScreen:
         password = self.password_var.get()
         
         # TODO: Implement registration functionality
+        self.add_log(f"Register attempt: {username}, Image: {self.selected_image_path}")
         print(f"Register attempt: {username}, Image: {self.selected_image_path}")
     
     def on_register_cancel(self):
@@ -161,6 +318,7 @@ class LoginScreen:
         # Hide file dialog button
         self.file_button.pack_forget()
         self.selected_image_path = None
+        self.add_log("Registration cancelled")
     
     def on_file_select(self):
         """Open file dialog for image selection"""
@@ -181,6 +339,7 @@ class LoginScreen:
             if len(file_name) > 25:
                 file_name = file_name[:22] + "..."
             self.file_button.configure(text=f"Selected: {file_name}")
+            self.add_log(f"Profile picture selected: {file_name}")
             print(f"Selected image: {file_path}")
     
     def run(self):
