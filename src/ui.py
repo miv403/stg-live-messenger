@@ -21,6 +21,7 @@ class LoginScreen:
         self.password_var = ctk.StringVar()
         self.register_mode = False
         self.selected_image_path = None
+        self.discovered_servers = []
         
         # Initialize client for service discovery
         self.client = Client()
@@ -235,6 +236,8 @@ class LoginScreen:
         def discover():
             self.add_log("Discovering servers on LAN...")
             servers = self.client.discover_servers(timeout=5)
+            # Store discovered servers
+            self.discovered_servers = servers
             # Update UI from main thread
             self.root.after(0, lambda: self.update_server_list(servers))
             if servers:
@@ -326,12 +329,64 @@ class LoginScreen:
     
     def on_register_submit(self):
         """Handle register submission"""
-        username = self.username_var.get()
+        username = self.username_var.get().strip()
         password = self.password_var.get()
         
-        # TODO: Implement registration functionality
-        self.add_log(f"Register attempt: {username}, Image: {self.selected_image_path}")
-        print(f"Register attempt: {username}, Image: {self.selected_image_path}")
+        # Validate inputs
+        if not username:
+            self.add_log("Error: Username cannot be empty")
+            return
+        
+        if not password:
+            self.add_log("Error: Password cannot be empty")
+            return
+        
+        if not self.selected_image_path:
+            self.add_log("Error: Please select a profile picture")
+            return
+        
+        # Check if server is available
+        if not self.discovered_servers:
+            self.add_log("Error: No servers found. Please wait for server discovery.")
+            return
+        
+        # Use first server for now
+        server = self.discovered_servers[0]
+        server_address = server.get('address')
+        
+        if not server_address:
+            self.add_log("Error: Invalid server address")
+            return
+        
+        # Register in background thread to avoid blocking UI
+        def register():
+            self.root.after(0, lambda: self.add_log(f"Connecting to server {server_address}..."))
+            
+            # Connect to server
+            if not self.client.connect_to_server(server_address):
+                self.root.after(0, lambda: self.add_log("Error: Failed to connect to server"))
+                return
+            
+            self.root.after(0, lambda: self.add_log(f"Registering user {username}..."))
+            
+            # Send registration request
+            response = self.client.register(username, password, self.selected_image_path)
+            
+            # Disconnect
+            self.client.disconnect()
+            
+            # Handle response
+            if response.get("status") == "success":
+                self.root.after(0, lambda: self.add_log(f"Registration successful for {username}"))
+                # Reset form
+                self.root.after(0, self.on_register_cancel)
+            else:
+                error_msg = response.get("message", "Unknown error")
+                self.root.after(0, lambda: self.add_log(f"Registration failed: {error_msg}"))
+        
+        # Start registration in background thread
+        thread = threading.Thread(target=register, daemon=True)
+        thread.start()
     
     def on_register_cancel(self):
         """Cancel registration and return to login mode"""
