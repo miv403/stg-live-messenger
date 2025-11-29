@@ -4,6 +4,9 @@ import time
 import json
 import base64
 import os
+import tempfile
+from password import hash_password, derive_des_key, get_password_hash_prefix
+from steganography import encode_hash_in_image
 
 
 class AllServicesListener(ServiceListener):
@@ -58,6 +61,8 @@ class Client:
         self.zeromq_socket = None
         self.connected_server = None
         self.zeromq_port = 6162
+        self.des_key = None  # Store DES key after login/registration
+        self.current_username = None  # Store current logged-in username
     
     def discover_servers(self, timeout=5):
         """Discover all available stgserver services on the LAN.
@@ -142,7 +147,7 @@ class Client:
         
         Args:
             username: Username to register
-            password: Password (will be used as key for now)
+            password: Password string
             picture_path: Path to profile picture file
             
         Returns:
@@ -152,29 +157,52 @@ class Client:
             return {"status": "error", "message": "Not connected to server"}
         
         try:
-            # Read and encode picture
+            # 1. Hash password
+            password_hash = hash_password(password)
+            
+            # 2. Derive DES key (store for future message encryption)
+            self.des_key = derive_des_key(username, password_hash)
+            self.current_username = username
+            
+            # 3. Encode hash in picture
             if not os.path.exists(picture_path):
                 return {"status": "error", "message": "Picture file not found"}
             
-            with open(picture_path, "rb") as f:
+            # Create temporary file for encoded picture
+            temp_dir = tempfile.gettempdir()
+            encoded_picture_path = os.path.join(temp_dir, f"{username}_encoded.png")
+            
+            try:
+                encode_hash_in_image(picture_path, password_hash, encoded_picture_path)
+            except ValueError as e:
+                return {"status": "error", "message": f"Steganography error: {str(e)}"}
+            
+            # 4. Read encoded picture
+            with open(encoded_picture_path, "rb") as f:
                 picture_data = f.read()
             
             picture_base64 = base64.b64encode(picture_data).decode('utf-8')
             
-            # Create request
+            # 5. Create request with password_hash (base64 encoded)
             request = {
                 "action": "REQ::REGISTER",
                 "username": username,
-                "password_hash": password,  # Using password as key for now
+                "password_hash": base64.b64encode(password_hash).decode('utf-8'),
                 "picture": picture_base64
             }
             
-            # Send request
+            # 6. Send request
             self.zeromq_socket.send_string(json.dumps(request))
             
-            # Wait for response
+            # 7. Wait for response
             response_str = self.zeromq_socket.recv_string()
             response = json.loads(response_str)
+            
+            # Clean up temporary file
+            try:
+                os.remove(encoded_picture_path)
+            except:
+                pass
             
             return response
             
@@ -195,22 +223,41 @@ class Client:
             return {"status": "error", "message": "Not connected to server"}
         
         try:
-            # Create request
+            # 1. Hash password
+            password_hash = hash_password(password)
+            
+            # 2. Get first 8 bytes for login verification
+            hash_prefix = get_password_hash_prefix(password_hash)
+            
+            # 3. Create request with hash prefix
             request = {
                 "action": "REQ::LOGIN",
                 "username": username,
-                "password": password
+                "password_hash_prefix": base64.b64encode(hash_prefix).decode('utf-8')
             }
             
-            # Send request
+            # 4. Send request
             self.zeromq_socket.send_string(json.dumps(request))
             
-            # Wait for response
+            # 5. Wait for response
             response_str = self.zeromq_socket.recv_string()
             response = json.loads(response_str)
+            
+            # 6. On success, derive and store DES key
+            if response.get("status") == "success":
+                self.des_key = derive_des_key(username, password_hash)
+                self.current_username = username
             
             return response
             
         except Exception as e:
             return {"status": "error", "message": str(e)}
+    
+    def get_des_key(self):
+        """Get the stored DES key for message encryption.
+        
+        Returns:
+            bytes: DES key (8 bytes) or None if not available
+        """
+        return self.des_key
 

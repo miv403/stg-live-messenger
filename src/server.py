@@ -8,9 +8,12 @@ import os
 import base64
 from PIL import Image
 import io
+import tempfile
 from services import ServiceRegister
 from logger import Logger
 from constants import Const
+from password import derive_des_key_from_hash, get_password_hash_prefix
+from steganography import decode_hash_from_image
 
 
 def get_local_ip():
@@ -92,13 +95,24 @@ class Server:
         conn = sqlite3.connect(Const.USERS_DB)
         cursor = conn.cursor()
         
+        # Check if password_hash column exists (for migration)
+        cursor.execute("PRAGMA table_info(users)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
-                key TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
                 picture_path TEXT NOT NULL
             )
         ''')
+        
+        # Migrate old schema if needed
+        if 'key' in columns and 'password_hash' not in columns:
+            cursor.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
+            # Copy key to password_hash for existing records
+            cursor.execute('UPDATE users SET password_hash = key WHERE password_hash IS NULL')
+            # Optionally drop key column (keep for now for compatibility)
         
         conn.commit()
         conn.close()
@@ -261,10 +275,10 @@ class Server:
         """
         try:
             username = request.get("username")
-            password_hash = request.get("password_hash")
+            password_hash_b64 = request.get("password_hash")
             picture_base64 = request.get("picture")
             
-            if not username or not password_hash or not picture_base64:
+            if not username or not password_hash_b64 or not picture_base64:
                 return {"status": "error", "message": "Missing required fields"}
             
             # Check if username already exists
@@ -277,26 +291,55 @@ class Server:
                 self.logger.log("REGISTER", f"{username} registration failed: username already exists")
                 return {"status": "error", "message": "Username already exists"}
             
-            # Decode and save picture
+            # Decode picture and save temporarily
             try:
                 picture_data = base64.b64decode(picture_base64)
                 picture_image = Image.open(io.BytesIO(picture_data))
                 
-                # Convert to PNG if needed and save
+                # Save to temporary file for steganography decoding
+                temp_dir = tempfile.gettempdir()
+                temp_picture_path = os.path.join(temp_dir, f"{username}_temp.png")
+                picture_image.save(temp_picture_path, "PNG")
+                
+                # Decode password hash from picture using steganography
+                try:
+                    decoded_hash = decode_hash_from_image(temp_picture_path)
+                except Exception as e:
+                    os.remove(temp_picture_path)
+                    conn.close()
+                    self.logger.error(f"Steganography decode error for {username}: {e}")
+                    return {"status": "error", "message": f"Failed to decode hash from picture: {str(e)}"}
+                
+                # Verify received hash matches decoded hash
+                received_hash = base64.b64decode(password_hash_b64)
+                if decoded_hash != received_hash:
+                    os.remove(temp_picture_path)
+                    conn.close()
+                    self.logger.error(f"Hash verification failed for {username}")
+                    return {"status": "error", "message": "Hash verification failed"}
+                
+                # Save picture to final location
                 picture_path = os.path.join(Const.IMG_DIR, f"{username}.png")
                 picture_image.save(picture_path, "PNG")
                 
                 # Get relative path
                 relative_path = os.path.relpath(picture_path, Const.CONFIG_DIR)
+                
+                # Clean up temporary file
+                try:
+                    os.remove(temp_picture_path)
+                except:
+                    pass
+                    
             except Exception as e:
                 conn.close()
-                self.logger.error(f"Error saving picture for {username}: {e}")
-                return {"status": "error", "message": f"Error saving picture: {str(e)}"}
+                self.logger.error(f"Error processing picture for {username}: {e}")
+                return {"status": "error", "message": f"Error processing picture: {str(e)}"}
             
-            # Save user to database (using password as key for now)
+            # Save user to database with password_hash
             cursor.execute(
-                "INSERT INTO users (username, key, picture_path) VALUES (?, ?, ?)",
-                (username, password_hash, relative_path)
+                "INSERT INTO users (username, password_hash, picture_path) VALUES (?, ?, ?)",
+                (username, password_hash_b64, relative_path)
             )
             
             conn.commit()
@@ -315,23 +358,23 @@ class Server:
         """Handle login request.
         
         Args:
-            request: Dictionary with username and password
+            request: Dictionary with username and password_hash_prefix
             
         Returns:
             dict: Response dictionary with status
         """
         try:
             username = request.get("username")
-            password = request.get("password")
+            hash_prefix_b64 = request.get("password_hash_prefix")
             
-            if not username or not password:
-                return {"status": "error", "message": "Missing username or password"}
+            if not username or not hash_prefix_b64:
+                return {"status": "error", "message": "Missing username or password hash prefix"}
             
-            # Query database for username
+            # Query database for username and password_hash
             conn = sqlite3.connect(Const.USERS_DB)
             cursor = conn.cursor()
             
-            cursor.execute("SELECT key FROM users WHERE username = ?", (username,))
+            cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
             result = cursor.fetchone()
             conn.close()
             
@@ -339,20 +382,57 @@ class Server:
                 self.logger.log("LOGIN", f"Login failed for {username}: username not found")
                 return {"status": "error", "message": "Invalid username or password"}
             
-            stored_password = result[0]
+            stored_hash_b64 = result[0]
+            stored_hash = base64.b64decode(stored_hash_b64)
             
-            # Compare passwords (simple string comparison for now)
-            if password != stored_password:
+            # Get first 8 bytes of stored hash
+            stored_hash_prefix = get_password_hash_prefix(stored_hash)
+            
+            # Compare with received hash prefix
+            received_hash_prefix = base64.b64decode(hash_prefix_b64)
+            
+            if stored_hash_prefix != received_hash_prefix:
                 self.logger.log("LOGIN", f"Login failed for {username}: incorrect password")
                 return {"status": "error", "message": "Invalid username or password"}
             
-            # Login successful
+            # Login successful - DES key can be derived using get_user_des_key() when needed
             self.logger.log("LOGIN", f"{username} logged in successfully")
             return {"status": "success", "message": "Login successful"}
             
         except Exception as e:
             self.logger.error(f"Login error: {e}")
             return {"status": "error", "message": str(e)}
+    
+    def get_user_des_key(self, username):
+        """Get DES key for a user by deriving it from stored password hash.
+        
+        Args:
+            username: Username to get DES key for
+            
+        Returns:
+            bytes: DES key (8 bytes) or None if user not found
+        """
+        try:
+            conn = sqlite3.connect(Const.USERS_DB)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT password_hash FROM users WHERE username = ?", (username,))
+            result = cursor.fetchone()
+            conn.close()
+            
+            if not result:
+                return None
+            
+            stored_hash_b64 = result[0]
+            stored_hash = base64.b64decode(stored_hash_b64)
+            
+            # Derive DES key using username as salt
+            des_key = derive_des_key_from_hash(username, stored_hash)
+            return des_key
+            
+        except Exception as e:
+            self.logger.error(f"Error getting DES key for {username}: {e}")
+            return None
     
     def handle_message(self):
         """Handle messaging functionality.
