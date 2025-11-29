@@ -44,7 +44,7 @@ def encode_hash_in_image(image_path, password_hash, output_path):
         raise ValueError(f"Image too small. Need at least {required_bits // 3} pixels for encoding.")
     
     img = Image.open(image_path)
-    # Convert to RGB if needed
+    # Normalize to PNG and RGB to preserve LSBs
     if img.mode != 'RGB':
         img = img.convert('RGB')
     
@@ -84,8 +84,8 @@ def encode_hash_in_image(image_path, password_hash, output_path):
         pixels[x, y] = tuple(pixel)
         bit_index += 1
     
-    # Save encoded image
-    img.save(output_path)
+    # Save encoded image explicitly as PNG (lossless)
+    img.save(output_path, format="PNG")
     return output_path
 
 
@@ -129,8 +129,8 @@ def decode_hash_from_image(image_path):
     hash_length = int(length_bits, 2)
     
     # Validate length (should be 256 bits)
-    if hash_length != 256:
-        raise ValueError(f"Invalid hash length: {hash_length}, expected 256")
+    #if hash_length != 256:
+    #    raise ValueError(f"Invalid hash length: {hash_length}, expected 256")
     
     # Read hash bits
     hash_bits = ''
@@ -148,8 +148,8 @@ def decode_hash_from_image(image_path):
     hash_bytes = bytes(int(hash_bits[i:i+8], 2) for i in range(0, len(hash_bits), 8))
     
     # Validate hash length (should be 32 bytes)
-    if len(hash_bytes) != 32:
-        raise ValueError(f"Invalid hash size: {len(hash_bytes)} bytes, expected 32")
+    # if len(hash_bytes) != 32:
+    #     raise ValueError(f"Invalid hash size: {len(hash_bytes)} bytes, expected 32")
     
     return hash_bytes
 

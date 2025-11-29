@@ -5,6 +5,7 @@ import json
 import base64
 import os
 import tempfile
+from PIL import Image
 from password import hash_password, derive_des_key, get_password_hash_prefix
 from steganography import encode_hash_in_image
 
@@ -164,17 +165,31 @@ class Client:
             self.des_key = derive_des_key(username, password_hash)
             self.current_username = username
             
-            # 3. Encode hash in picture
+            # 3. Normalize input image to PNG and encode hash in picture
             if not os.path.exists(picture_path):
                 return {"status": "error", "message": "Picture file not found"}
-            
-            # Create temporary file for encoded picture
+
+            # Always convert source image to PNG (RGB) before steganography
             temp_dir = tempfile.gettempdir()
+            source_png_path = os.path.join(temp_dir, f"{username}_source.png")
             encoded_picture_path = os.path.join(temp_dir, f"{username}_encoded.png")
-            
+
             try:
-                encode_hash_in_image(picture_path, password_hash, encoded_picture_path)
+                img = Image.open(picture_path)
+                if img.mode != 'RGB':
+                    img = img.convert('RGB')
+                img.save(source_png_path, format="PNG")
+            except Exception as e:
+                return {"status": "error", "message": f"Failed to prepare PNG: {str(e)}"}
+
+            try:
+                encode_hash_in_image(source_png_path, password_hash, encoded_picture_path)
             except ValueError as e:
+                # Clean temp source on error
+                try:
+                    os.remove(source_png_path)
+                except:
+                    pass
                 return {"status": "error", "message": f"Steganography error: {str(e)}"}
             
             # 4. Read encoded picture
@@ -198,11 +213,12 @@ class Client:
             response_str = self.zeromq_socket.recv_string()
             response = json.loads(response_str)
             
-            # Clean up temporary file
-            try:
-                os.remove(encoded_picture_path)
-            except:
-                pass
+            # Clean up temporary files
+            for p in (encoded_picture_path, source_png_path):
+                try:
+                    os.remove(p)
+                except:
+                    pass
             
             return response
             
