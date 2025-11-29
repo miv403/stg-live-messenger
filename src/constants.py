@@ -17,7 +17,8 @@ class Const: # TODO implement global constants
     HOME_DIR = os.environ['HOME']
 
     # AUTH_KEYS_FILE = f"{HOME_DIR}/.ssh/authorized_keys"
-    CONFIG_DIR = f"{HOME_DIR}/.stgmsg/"
+    # CONFIG_DIR = f"{HOME_DIR}/.stgmsg/"
+    CONFIG_DIR = "./.stgmsg/"
     # SHARED_DIR = f"{HOME_DIR}/.desit/shared/"
     # HOST_KEY_DIR = f"{HOME_DIR}/.desit/hostkey/"
     # KEYS_DIR = f"{HOME_DIR}/.desit/keys/"

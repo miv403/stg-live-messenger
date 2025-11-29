@@ -54,7 +54,7 @@ class Service:
         self.ID = _id
         self.PORT = port
         self.LOCALHOST = addr
-        self.APP_NAME = "desit"
+        self.APP_NAME = "stgserver"
         self.serviceType = f"_{self.APP_NAME}._tcp.local."
 
         self.stop = False
