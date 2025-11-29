@@ -1,7 +1,9 @@
 *.drawio
 *.pdf
 *.png
+*.svg
 .cursor/
 .vscode/
 venv/
 __pycache__/
+*.db
