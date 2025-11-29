@@ -159,6 +159,15 @@ class LoginScreen:
         self.file_button.pack(pady=(0, 10))
         self.file_button.pack_forget()  # Hide initially
         
+        # Login success message (initially hidden)
+        self.login_success_label = ctk.CTkLabel(
+            inner_frame,
+            text="Login successful",
+            font=ctk.CTkFont(size=12),
+            text_color="#00ff00"  # Green color
+        )
+        # Don't pack initially, will be shown on successful login
+        
         # Store references for later use
         self.username_entry = username_entry
         self.password_entry = password_entry
@@ -304,12 +313,67 @@ class LoginScreen:
     
     def on_login_click(self):
         """Handle login button click"""
-        username = self.username_var.get()
+        username = self.username_var.get().strip()
         password = self.password_var.get()
         
-        # TODO: Implement login functionality
-        self.add_log(f"Login attempt: {username}")
-        print(f"Login attempt: {username}")
+        # Validate inputs
+        if not username:
+            self.add_log("Error: Username cannot be empty")
+            return
+        
+        if not password:
+            self.add_log("Error: Password cannot be empty")
+            return
+        
+        # Check if server is available
+        if not self.discovered_servers:
+            self.add_log("Error: No servers found. Please wait for server discovery.")
+            return
+        
+        # Hide success message if visible
+        if self.login_success_label.winfo_viewable():
+            self.login_success_label.pack_forget()
+        
+        # Use first server for now
+        server = self.discovered_servers[0]
+        server_address = server.get('address')
+        
+        if not server_address:
+            self.add_log("Error: Invalid server address")
+            return
+        
+        # Login in background thread to avoid blocking UI
+        def login():
+            self.root.after(0, lambda: self.add_log(f"Connecting to server {server_address}..."))
+            
+            # Connect to server
+            if not self.client.connect_to_server(server_address):
+                self.root.after(0, lambda: self.add_log("Error: Failed to connect to server"))
+                return
+            
+            self.root.after(0, lambda: self.add_log(f"Logging in as {username}..."))
+            
+            # Send login request
+            response = self.client.login(username, password)
+            
+            # Disconnect
+            self.client.disconnect()
+            
+            # Handle response
+            if response.get("status") == "success":
+                self.root.after(0, lambda: self.add_log(f"Login successful for {username}"))
+                # Show green success message
+                self.root.after(0, lambda: self.login_success_label.pack(pady=(10, 0)))
+            else:
+                error_msg = response.get("message", "Unknown error")
+                self.root.after(0, lambda: self.add_log(f"Login failed: {error_msg}"))
+                # Hide success message if visible
+                if self.login_success_label.winfo_viewable():
+                    self.root.after(0, lambda: self.login_success_label.pack_forget())
+        
+        # Start login in background thread
+        thread = threading.Thread(target=login, daemon=True)
+        thread.start()
     
     def on_register_click(self):
         """Handle register button click"""

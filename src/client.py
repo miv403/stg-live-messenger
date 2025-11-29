@@ -180,4 +180,37 @@ class Client:
             
         except Exception as e:
             return {"status": "error", "message": str(e)}
+    
+    def login(self, username, password):
+        """Login with username and password.
+        
+        Args:
+            username: Username to login
+            password: Password for authentication
+            
+        Returns:
+            dict: Response dictionary with status and message
+        """
+        if not self.zeromq_socket:
+            return {"status": "error", "message": "Not connected to server"}
+        
+        try:
+            # Create request
+            request = {
+                "action": "REQ::LOGIN",
+                "username": username,
+                "password": password
+            }
+            
+            # Send request
+            self.zeromq_socket.send_string(json.dumps(request))
+            
+            # Wait for response
+            response_str = self.zeromq_socket.recv_string()
+            response = json.loads(response_str)
+            
+            return response
+            
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 

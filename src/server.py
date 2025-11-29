@@ -242,7 +242,7 @@ class Server:
         if action == "REQ::REGISTER":
             return self._handle_register(request)
         elif action == "REQ::LOGIN":
-            return {"status": "error", "message": "Not implemented yet"}
+            return self._handle_login(request)
         elif action == "REQ::SEND":
             return {"status": "error", "message": "Not implemented yet"}
         elif action == "REQ::FETCH":
@@ -309,6 +309,49 @@ class Server:
             
         except Exception as e:
             self.logger.error(f"Registration error: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    def _handle_login(self, request):
+        """Handle login request.
+        
+        Args:
+            request: Dictionary with username and password
+            
+        Returns:
+            dict: Response dictionary with status
+        """
+        try:
+            username = request.get("username")
+            password = request.get("password")
+            
+            if not username or not password:
+                return {"status": "error", "message": "Missing username or password"}
+            
+            # Query database for username
+            conn = sqlite3.connect(Const.USERS_DB)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT key FROM users WHERE username = ?", (username,))
+            result = cursor.fetchone()
+            conn.close()
+            
+            if not result:
+                self.logger.log("LOGIN", f"Login failed for {username}: username not found")
+                return {"status": "error", "message": "Invalid username or password"}
+            
+            stored_password = result[0]
+            
+            # Compare passwords (simple string comparison for now)
+            if password != stored_password:
+                self.logger.log("LOGIN", f"Login failed for {username}: incorrect password")
+                return {"status": "error", "message": "Invalid username or password"}
+            
+            # Login successful
+            self.logger.log("LOGIN", f"{username} logged in successfully")
+            return {"status": "success", "message": "Login successful"}
+            
+        except Exception as e:
+            self.logger.error(f"Login error: {e}")
             return {"status": "error", "message": str(e)}
     
     def handle_message(self):
