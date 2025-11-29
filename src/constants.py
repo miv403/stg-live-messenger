@@ -22,6 +22,7 @@ class Const: # TODO implement global constants
     DB_DIR = f"{CONFIG_DIR}db/"
     IMG_DIR = f"{DB_DIR}img/"
     USERS_DB = f"{DB_DIR}users.db"
+    MAILBOX_DB = f"{DB_DIR}mailbox.db"
     # SHARED_DIR = f"{HOME_DIR}/.desit/shared/"
     # HOST_KEY_DIR = f"{HOME_DIR}/.desit/hostkey/"
     # KEYS_DIR = f"{HOME_DIR}/.desit/keys/"

@@ -6,7 +6,7 @@ import base64
 import os
 import tempfile
 from PIL import Image
-from password import hash_password, derive_des_key, get_password_hash_prefix
+from password import hash_password, derive_des_key, get_password_hash_prefix, decrypt_des_cbc
 from steganography import encode_hash_in_image
 
 
@@ -276,4 +276,59 @@ class Client:
             bytes: DES key (8 bytes) or None if not available
         """
         return self.des_key
+
+    def send_message(self, to_username, plaintext):
+        """Send a plaintext message to recipient. Server encrypts with recipient key.
+        
+        Args:
+            to_username: Recipient username
+            plaintext: Message body string
+        Returns:
+            dict: Response with status/message
+        """
+        if not self.zeromq_socket:
+            return {"status": "error", "message": "Not connected to server"}
+        if not self.current_username:
+            return {"status": "error", "message": "Not logged in"}
+        try:
+            req = {
+                "action": "REQ::SEND",
+                "from": self.current_username,
+                "to": to_username,
+                "body": plaintext,
+            }
+            self.zeromq_socket.send_string(json.dumps(req))
+            resp = json.loads(self.zeromq_socket.recv_string())
+            return resp
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def fetch_messages(self):
+        """Fetch messages for the logged-in user and decrypt using stored DES key.
+        
+        Returns:
+            dict: {"status":"success","messages":[{"from":str,"body":str,"created_at":str}]} or error
+        """
+        if not self.zeromq_socket:
+            return {"status": "error", "message": "Not connected to server"}
+        if not self.current_username or not self.des_key:
+            return {"status": "error", "message": "Not logged in"}
+        try:
+            req = {"action": "REQ::FETCH", "username": self.current_username}
+            self.zeromq_socket.send_string(json.dumps(req))
+            resp = json.loads(self.zeromq_socket.recv_string())
+            if resp.get("status") != "success":
+                return resp
+            import base64
+            decrypted = []
+            for m in resp.get("messages", []):
+                try:
+                    raw = base64.b64decode(m.get("body", ""))
+                    body = decrypt_des_cbc(self.des_key, raw)
+                    decrypted.append({"from": m.get("from"), "body": body, "created_at": m.get("created_at")})
+                except Exception as e:
+                    decrypted.append({"from": m.get("from"), "body": f"<decrypt error: {e}>", "created_at": m.get("created_at")})
+            return {"status": "success", "messages": decrypted}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 

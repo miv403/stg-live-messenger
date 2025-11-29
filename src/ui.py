@@ -44,14 +44,14 @@ class LoginScreen:
     def setup_ui(self):
         """Setup the main UI with three containers"""
         # Main container with padding
-        main_frame = ctk.CTkFrame(self.root, fg_color="transparent")
-        main_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        self.main_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+        self.main_frame.pack(fill="both", expand=True, padx=20, pady=20)
         
         # Left container - Login/Register
-        self.setup_login_container(main_frame)
+        self.setup_login_container(self.main_frame)
         
         # Right container - Server Status and Logs
-        self.setup_right_containers(main_frame)
+        self.setup_right_containers(self.main_frame)
     
     def setup_login_container(self, parent):
         """Setup the left container for login/register"""
@@ -398,15 +398,25 @@ class LoginScreen:
             # Send login request
             response = self.client.login(username, password)
             
-            # Disconnect
-            self.client.disconnect()
-            self.root.after(0, lambda: self.update_connection_status(False))
-            
             # Handle response
             if response.get("status") == "success":
                 self.root.after(0, lambda: self.add_log(f"Login successful for {username}"))
                 # Show green success message
                 self.root.after(0, lambda: self.login_success_label.pack(pady=(10, 0)))
+                # After short delay, show mailbox UI and auto-fetch once
+                def _show_mailbox_and_fetch():
+                    self.show_mailbox_ui()
+                    # connect, fetch, disconnect
+                    if self.client.connect_to_server(server_address):
+                        self.update_connection_status(True)
+                        resp = self.client.fetch_messages()
+                        self.update_connection_status(False)
+                        self.client.disconnect()
+                        if resp.get("status") == "success":
+                            self.update_messages_table(resp.get("messages", []))
+                        else:
+                            self.add_log(f"Fetch error: {resp.get('message')}")
+                self.root.after(1200, _show_mailbox_and_fetch)
             else:
                 error_msg = response.get("message", "Unknown error")
                 self.root.after(0, lambda: self.add_log(f"Login failed: {error_msg}"))
@@ -417,6 +427,108 @@ class LoginScreen:
         # Start login in background thread
         thread = threading.Thread(target=login, daemon=True)
         thread.start()
+
+    def show_mailbox_ui(self):
+        """Replace left container with mailbox view."""
+        for widget in self.main_frame.winfo_children():
+            widget.destroy()
+        container = ctk.CTkFrame(self.main_frame)
+        container.pack(side="left", fill="both", expand=True, padx=(0, 10), pady=0)
+        container.pack_propagate(False)
+
+        inner = ctk.CTkFrame(container, fg_color="transparent")
+        inner.pack(fill="both", expand=True, padx=30, pady=30)
+
+        header = ctk.CTkLabel(inner, text="Mailbox", font=ctk.CTkFont(size=18, weight="bold"))
+        header.pack(anchor="w", pady=(0, 10))
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(inner, fg_color="transparent")
+        btn_frame.pack(fill="x", pady=(0, 10))
+
+        refresh_btn = ctk.CTkButton(btn_frame, text="Refresh", width=100, command=self.on_refresh_click)
+        refresh_btn.pack(side="left")
+
+        send_btn = ctk.CTkButton(btn_frame, text="Send", width=100, command=self.on_send_click)
+        send_btn.pack(side="left", padx=(10, 0))
+
+        # Messages table-like view (two columns)
+        self.messages_list = ctk.CTkTextbox(inner, height=360)
+        self.messages_list.pack(fill="both", expand=True)
+
+        # Keep right containers (server status + logs)
+        self.setup_right_containers(self.main_frame)
+
+    def update_messages_table(self, messages):
+        """Render messages in the textbox as two columns: from, body."""
+        self.messages_list.configure(state="normal")
+        self.messages_list.delete("1.0", "end")
+        for m in messages:
+            frm = m.get("from", "?")
+            body = m.get("body", "")
+            self.messages_list.insert("end", f"From: {frm}\n{body}\n\n")
+        self.messages_list.configure(state="disabled")
+
+    def on_refresh_click(self):
+        # Use first discovered server
+        if not self.discovered_servers:
+            self.add_log("No servers to refresh from")
+            return
+        server_address = self.discovered_servers[0].get('address')
+        def do_refresh():
+            if self.client.connect_to_server(server_address):
+                self.root.after(0, lambda: self.update_connection_status(True))
+                resp = self.client.fetch_messages()
+                self.client.disconnect()
+                self.root.after(0, lambda: self.update_connection_status(False))
+                if resp.get("status") == "success":
+                    self.root.after(0, lambda: self.update_messages_table(resp.get("messages", [])))
+                else:
+                    self.root.after(0, lambda: self.add_log(f"Refresh error: {resp.get('message')}"))
+        threading.Thread(target=do_refresh, daemon=True).start()
+
+    def on_send_click(self):
+        # Simple dialog via CTkToplevel
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Send Message")
+        dialog.geometry("400x220")
+        frame = ctk.CTkFrame(dialog)
+        frame.pack(fill="both", expand=True, padx=20, pady=20)
+
+        ctk.CTkLabel(frame, text="To:").pack(anchor="w")
+        to_var = ctk.StringVar()
+        to_entry = ctk.CTkEntry(frame, textvariable=to_var)
+        to_entry.pack(fill="x", pady=(0,10))
+
+        ctk.CTkLabel(frame, text="Message:").pack(anchor="w")
+        body_text = ctk.CTkTextbox(frame, height=80)
+        body_text.pack(fill="both")
+
+        def do_send():
+            to_user = to_var.get().strip()
+            body = body_text.get("1.0", "end").strip()
+            if not to_user or not body:
+                self.add_log("Provide recipient and message body")
+                return
+            if not self.discovered_servers:
+                self.add_log("No server available")
+                return
+            server_address = self.discovered_servers[0].get('address')
+            def send_bg():
+                if self.client.connect_to_server(server_address):
+                    self.root.after(0, lambda: self.update_connection_status(True))
+                    resp = self.client.send_message(to_user, body)
+                    self.client.disconnect()
+                    self.root.after(0, lambda: self.update_connection_status(False))
+                    if resp.get("status") == "success":
+                        self.root.after(0, lambda: self.add_log("Message sent"))
+                        dialog.destroy()
+                    else:
+                        self.root.after(0, lambda: self.add_log(f"Send error: {resp.get('message')}"))
+            threading.Thread(target=send_bg, daemon=True).start()
+
+        send_btn = ctk.CTkButton(frame, text="Send", command=do_send)
+        send_btn.pack(pady=(10,0))
     
     def on_register_click(self):
         """Handle register button click"""

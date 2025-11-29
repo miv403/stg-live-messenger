@@ -13,6 +13,7 @@ from services import ServiceRegister
 from logger import Logger
 from constants import Const
 from password import derive_des_key_from_hash, get_password_hash_prefix
+from password import encrypt_des_cbc
 from steganography import decode_hash_from_image
 
 
@@ -76,6 +77,7 @@ class Server:
         # Initialize databases and directories
         self._init_directories()
         self._init_user_database()
+        self._init_mailbox_database()
         
         # Get local IP address
         self.local_ip = get_local_ip()
@@ -114,6 +116,25 @@ class Server:
             cursor.execute('UPDATE users SET password_hash = key WHERE password_hash IS NULL')
             # Optionally drop key column (keep for now for compatibility)
         
+        conn.commit()
+        conn.close()
+
+    def _init_mailbox_database(self):
+        """Initialize mailbox database."""
+        conn = sqlite3.connect(Const.MAILBOX_DB)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mailbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                to_username TEXT NOT NULL,
+                from_username TEXT NOT NULL,
+                body BLOB NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_mailbox_to ON mailbox(to_username)")
         conn.commit()
         conn.close()
     
@@ -258,9 +279,9 @@ class Server:
         elif action == "REQ::LOGIN":
             return self._handle_login(request)
         elif action == "REQ::SEND":
-            return {"status": "error", "message": "Not implemented yet"}
+            return self._handle_send(request)
         elif action == "REQ::FETCH":
-            return {"status": "error", "message": "Not implemented yet"}
+            return self._handle_fetch(request)
         else:
             return {"status": "error", "message": f"Unknown action: {action}"}
     
@@ -350,6 +371,24 @@ class Server:
             self.logger.log("REGISTER", f"{username} wants to be registered.")
             self.logger.log("REGISTER", "Registering successful.")
             
+            # Insert welcome message encrypted with user's DES key
+            try:
+                des_key = self.get_user_des_key(username)
+                if des_key:
+                    welcome_text = "Welcome to STG Live Messenger!"
+                    iv_ct = encrypt_des_cbc(des_key, welcome_text)
+                    conn_mb = sqlite3.connect(Const.MAILBOX_DB)
+                    cur_mb = conn_mb.cursor()
+                    import datetime
+                    cur_mb.execute(
+                        "INSERT INTO mailbox (to_username, from_username, body, created_at) VALUES (?, ?, ?, ?)",
+                        (username, "server", iv_ct, datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z")
+                    )
+                    conn_mb.commit()
+                    conn_mb.close()
+            except Exception as e:
+                self.logger.error(f"Failed to insert welcome message for {username}: {e}")
+
             return {"status": "success", "message": "Registration successful"}
             
         except Exception as e:
@@ -442,3 +481,88 @@ class Server:
         TODO: Implement messaging functionality
         """
         pass
+
+    def _handle_send(self, request):
+        """Handle send message request.
+        
+        Expected request: {"action":"REQ::SEND","from":"<sender>","to":"<recipient>","body":"<plaintext>"}
+        """
+        try:
+            sender = request.get("from")
+            recipient = request.get("to")
+            body = request.get("body")
+            if not sender or not recipient or body is None:
+                return {"status": "error", "message": "Missing fields"}
+
+            # Validate users exist
+            conn = sqlite3.connect(Const.USERS_DB)
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM users WHERE username=?", (sender,))
+            if not cur.fetchone():
+                conn.close()
+                return {"status": "error", "message": "Sender not found"}
+            cur.execute("SELECT 1 FROM users WHERE username=?", (recipient,))
+            if not cur.fetchone():
+                conn.close()
+                return {"status": "error", "message": "Recipient not found"}
+            conn.close()
+
+            # Derive recipient DES key and encrypt
+            des_key = self.get_user_des_key(recipient)
+            if not des_key:
+                return {"status": "error", "message": "Failed to derive recipient key"}
+            iv_ct = encrypt_des_cbc(des_key, body)
+
+            # Store in mailbox
+            import datetime
+            conn_mb = sqlite3.connect(Const.MAILBOX_DB)
+            cur_mb = conn_mb.cursor()
+            cur_mb.execute(
+                "INSERT INTO mailbox (to_username, from_username, body, created_at) VALUES (?, ?, ?, ?)",
+                (recipient, sender, iv_ct, datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z")
+            )
+            conn_mb.commit()
+            conn_mb.close()
+            return {"status": "success", "message": "Message stored"}
+        except Exception as e:
+            self.logger.error(f"Send error: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def _handle_fetch(self, request):
+        """Handle fetch messages for a username.
+        
+        Expected request: {"action":"REQ::FETCH","username":"<user>"}
+        Returns base64 iv|ciphertext bodies for client to decrypt.
+        """
+        try:
+            username = request.get("username")
+            if not username:
+                return {"status": "error", "message": "Missing username"}
+
+            # Validate user exists
+            conn = sqlite3.connect(Const.USERS_DB)
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM users WHERE username=?", (username,))
+            if not cur.fetchone():
+                conn.close()
+                return {"status": "error", "message": "User not found"}
+            conn.close()
+
+            # Fetch messages
+            conn_mb = sqlite3.connect(Const.MAILBOX_DB)
+            cur_mb = conn_mb.cursor()
+            cur_mb.execute(
+                "SELECT from_username, body, created_at FROM mailbox WHERE to_username=? ORDER BY id ASC",
+                (username,)
+            )
+            rows = cur_mb.fetchall()
+            conn_mb.close()
+            import base64
+            messages = [
+                {"from": r[0], "body": base64.b64encode(r[1]).decode("ascii"), "created_at": r[2]}
+                for r in rows
+            ]
+            return {"status": "success", "messages": messages}
+        except Exception as e:
+            self.logger.error(f"Fetch error: {e}")
+            return {"status": "error", "message": str(e)}
