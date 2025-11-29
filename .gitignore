@@ -1,0 +1,6 @@
+*.drawio
+*.pdf
+*.png
+.cursor/
+.vscode/
+venv/
