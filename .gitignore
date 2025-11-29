@@ -4,3 +4,4 @@
 .cursor/
 .vscode/
 venv/
+__pycache__/
