@@ -1,12 +1,11 @@
 import sys
-from ui import start_client_gui
-from server import Server
-
 
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "client":
+        from ui import start_client_gui
         start_client_gui()
     elif len(sys.argv) > 1 and sys.argv[1] == "server":
+        from server import Server
         server = Server(server_id="stgserver", port=6161)
         server.start()
     else:
