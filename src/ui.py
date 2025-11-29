@@ -22,6 +22,7 @@ class LoginScreen:
         self.register_mode = False
         self.selected_image_path = None
         self.discovered_servers = []
+        self.connected_to_server = False
         
         # Initialize client for service discovery
         self.client = Client()
@@ -188,13 +189,37 @@ class LoginScreen:
         status_frame = ctk.CTkFrame(parent)
         status_frame.pack(fill="both", expand=True, pady=(0, 10))
         
+        # Header frame with title, refresh button, and connection status
+        header_frame = ctk.CTkFrame(status_frame, fg_color="transparent")
+        header_frame.pack(fill="x", padx=15, pady=(15, 10))
+        
         # Title
         status_title = ctk.CTkLabel(
-            status_frame,
+            header_frame,
             text="Server Status",
             font=ctk.CTkFont(size=16, weight="bold")
         )
-        status_title.pack(pady=(15, 10), padx=15, anchor="w")
+        status_title.pack(side="left", anchor="w")
+        
+        # Connection status indicator (green tick)
+        self.connection_status_label = ctk.CTkLabel(
+            header_frame,
+            text="●",
+            font=ctk.CTkFont(size=16),
+            text_color="gray"  # Gray when not connected
+        )
+        self.connection_status_label.pack(side="right", padx=(10, 0))
+        
+        # Refresh button
+        refresh_button = ctk.CTkButton(
+            header_frame,
+            text="Refresh",
+            width=80,
+            height=30,
+            font=ctk.CTkFont(size=12),
+            command=self.discover_servers
+        )
+        refresh_button.pack(side="right", padx=(10, 0))
         
         # Scrollable frame for server list
         scrollable_frame = ctk.CTkScrollableFrame(
@@ -311,6 +336,18 @@ class LoginScreen:
                 )
                 address_label.pack(anchor="w")
     
+    def update_connection_status(self, connected):
+        """Update the connection status indicator.
+        
+        Args:
+            connected: Boolean indicating if connected to server
+        """
+        self.connected_to_server = connected
+        if connected:
+            self.connection_status_label.configure(text="✓", text_color="#00ff00")  # Green tick
+        else:
+            self.connection_status_label.configure(text="●", text_color="gray")  # Gray dot
+    
     def on_login_click(self):
         """Handle login button click"""
         username = self.username_var.get().strip()
@@ -349,8 +386,10 @@ class LoginScreen:
             # Connect to server
             if not self.client.connect_to_server(server_address):
                 self.root.after(0, lambda: self.add_log("Error: Failed to connect to server"))
+                self.root.after(0, lambda: self.update_connection_status(False))
                 return
             
+            self.root.after(0, lambda: self.update_connection_status(True))
             self.root.after(0, lambda: self.add_log(f"Logging in as {username}..."))
             
             # Send login request
@@ -358,6 +397,7 @@ class LoginScreen:
             
             # Disconnect
             self.client.disconnect()
+            self.root.after(0, lambda: self.update_connection_status(False))
             
             # Handle response
             if response.get("status") == "success":
@@ -429,8 +469,10 @@ class LoginScreen:
             # Connect to server
             if not self.client.connect_to_server(server_address):
                 self.root.after(0, lambda: self.add_log("Error: Failed to connect to server"))
+                self.root.after(0, lambda: self.update_connection_status(False))
                 return
             
+            self.root.after(0, lambda: self.update_connection_status(True))
             self.root.after(0, lambda: self.add_log(f"Registering user {username}..."))
             
             # Send registration request
@@ -438,6 +480,7 @@ class LoginScreen:
             
             # Disconnect
             self.client.disconnect()
+            self.root.after(0, lambda: self.update_connection_status(False))
             
             # Handle response
             if response.get("status") == "success":
