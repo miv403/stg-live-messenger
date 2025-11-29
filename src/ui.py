@@ -276,8 +276,10 @@ class LoginScreen:
             self.root.after(0, lambda: self.update_server_list(servers))
             if servers:
                 self.root.after(0, lambda: self.add_log(f"Found {len(servers)} server(s)"))
+                self.root.after(0, lambda: self.update_connection_status(True))
             else:
                 self.root.after(0, lambda: self.add_log("No servers found on LAN"))
+                self.root.after(0, lambda: self.update_connection_status(False))
         
         # Start discovery in background thread
         thread = threading.Thread(target=discover, daemon=True)
@@ -335,6 +337,7 @@ class LoginScreen:
                     anchor="w"
                 )
                 address_label.pack(anchor="w")
+            self.update_connection_status(True)
     
     def update_connection_status(self, connected):
         """Update the connection status indicator.
@@ -504,7 +507,7 @@ class LoginScreen:
         # Hide file dialog button
         self.file_button.pack_forget()
         self.selected_image_path = None
-        self.add_log("Registration cancelled")
+        # self.add_log("Registration cancelled")
     
     def on_file_select(self):
         """Open file dialog for image selection"""
