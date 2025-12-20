@@ -337,11 +337,11 @@ class Server:
                 
                 # Verify received hash matches decoded hash
                 received_hash = base64.b64decode(password_hash_b64)
-                # if decoded_hash != received_hash:
-                #    os.remove(temp_picture_path)
-                #    conn.close()
-                #    self.logger.error(f"Hash verification failed for {username}")
-                #    return {"status": "error", "message": "Hash verification failed"}
+                if decoded_hash != received_hash:
+                   os.remove(temp_picture_path)
+                   conn.close()
+                   self.logger.error(f"Hash verification failed for {username}")
+                   return {"status": "error", "message": "Hash verification failed"}
                 
                 # Save picture to final location
                 picture_path = os.path.join(Const.IMG_DIR, f"{username}.png")
@@ -361,11 +361,11 @@ class Server:
                 self.logger.error(f"Error processing picture for {username}: {e}")
                 return {"status": "error", "message": f"Error processing picture: {str(e)}"}
             
-            # Save user to database with password_hash
+            # Save user to database with password_hash (base64 encoded)
+            decoded_hash_b64 = base64.b64encode(decoded_hash).decode('utf-8')
             cursor.execute(
                 "INSERT INTO users (username, password_hash, picture_path) VALUES (?, ?, ?)",
-                (username, password_hash_b64, relative_path)
-                # (username, decoded_hash, relative_path)
+                (username, decoded_hash_b64, relative_path)
             )
             
             conn.commit()

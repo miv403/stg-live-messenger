@@ -38,8 +38,8 @@ def encode_hash_in_image(image_path, password_hash, output_path):
     if not os.path.exists(image_path):
         raise ValueError(f"Image file not found: {image_path}")
     
-    # Validate image size (32 bytes = 256 bits + 8 bits length = 264 bits)
-    required_bits = 264
+    # Validate image size (32 bytes = 256 bits + 16 bits length = 272 bits)
+    required_bits = 272
     if not validate_image_size(image_path, required_bits):
         raise ValueError(f"Image too small. Need at least {required_bits // 3} pixels for encoding.")
     
@@ -55,13 +55,13 @@ def encode_hash_in_image(image_path, password_hash, output_path):
     hash_binary = ''.join(format(byte, '08b') for byte in password_hash)
     hash_length = len(hash_binary)  # Should be 256 bits
     
-    # Encode length first (8 bits)
-    length_bits = format(hash_length, '08b')
+    # Encode length first (16 bits to support values up to 65535)
+    length_bits = format(hash_length, '016b')
     
     bit_index = 0
     
-    # Encode length (8 bits)
-    for i in range(8):
+    # Encode length (16 bits)
+    for i in range(16):
         x = (bit_index // 3) % width
         y = (bit_index // 3) // width
         channel = bit_index % 3
@@ -114,9 +114,9 @@ def decode_hash_from_image(image_path):
     
     bit_index = 0
     
-    # Read length first (8 bits)
+    # Read length first (16 bits)
     length_bits = ''
-    for i in range(8):
+    for i in range(16):
         x = (bit_index // 3) % width
         y = (bit_index // 3) // width
         channel = bit_index % 3
@@ -129,8 +129,8 @@ def decode_hash_from_image(image_path):
     hash_length = int(length_bits, 2)
     
     # Validate length (should be 256 bits)
-    #if hash_length != 256:
-    #    raise ValueError(f"Invalid hash length: {hash_length}, expected 256")
+    if hash_length != 256:
+        raise ValueError(f"Invalid hash length: {hash_length}, expected 256")
     
     # Read hash bits
     hash_bits = ''
@@ -148,8 +148,8 @@ def decode_hash_from_image(image_path):
     hash_bytes = bytes(int(hash_bits[i:i+8], 2) for i in range(0, len(hash_bits), 8))
     
     # Validate hash length (should be 32 bytes)
-    # if len(hash_bytes) != 32:
-    #     raise ValueError(f"Invalid hash size: {len(hash_bytes)} bytes, expected 32")
+    if len(hash_bytes) != 32:
+        raise ValueError(f"Invalid hash size: {len(hash_bytes)} bytes, expected 32")
     
     return hash_bytes
 
