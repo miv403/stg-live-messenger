@@ -488,43 +488,82 @@ class LoginScreen:
         threading.Thread(target=do_refresh, daemon=True).start()
 
     def on_send_click(self):
-        # Simple dialog via CTkToplevel
+        if not self.discovered_servers:
+            self.add_log("No servers available")
+            return
+            
+        server_address = self.discovered_servers[0].get('address')
+        self.add_log("Fetching user list...")
+        
+        def fetch_users():
+            users = []
+            if self.client.connect_to_server(server_address):
+                users = self.client.get_users()
+                self.client.disconnect()
+            
+            # Filter current user
+            current = self.username_var.get()
+            users = [u for u in users if u != current]
+            
+            self.root.after(0, lambda: self._show_send_dialog(users))
+            
+        threading.Thread(target=fetch_users, daemon=True).start()
+
+    def _show_send_dialog(self, users):
+        if not users:
+            self.add_log("No other users found to message")
+            return
+
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Send Message")
-        dialog.geometry("400x220")
+        dialog.geometry("400x250")
+        
+        # Lift window and set focus
+        dialog.lift()
+        dialog.focus_force()
+        
+        # Wait for window to be visible before grabbing
+        dialog.after(100, dialog.grab_set)
+        
         frame = ctk.CTkFrame(dialog)
         frame.pack(fill="both", expand=True, padx=20, pady=20)
 
         ctk.CTkLabel(frame, text="To:").pack(anchor="w")
-        to_var = ctk.StringVar()
-        to_entry = ctk.CTkEntry(frame, textvariable=to_var)
-        to_entry.pack(fill="x", pady=(0,10))
+        
+        to_var = ctk.StringVar(value=users[0] if users else "")
+        to_menu = ctk.CTkOptionMenu(frame, variable=to_var, values=users)
+        to_menu.pack(fill="x", pady=(0,10))
 
         ctk.CTkLabel(frame, text="Message:").pack(anchor="w")
         body_text = ctk.CTkTextbox(frame, height=80)
         body_text.pack(fill="both")
 
         def do_send():
-            to_user = to_var.get().strip()
+            to_user = to_var.get()
             body = body_text.get("1.0", "end").strip()
             if not to_user or not body:
                 self.add_log("Provide recipient and message body")
                 return
+            
             if not self.discovered_servers:
                 self.add_log("No server available")
                 return
+                
             server_address = self.discovered_servers[0].get('address')
+            
             def send_bg():
                 if self.client.connect_to_server(server_address):
                     self.root.after(0, lambda: self.update_connection_status(True))
                     resp = self.client.send_message(to_user, body)
                     self.client.disconnect()
                     self.root.after(0, lambda: self.update_connection_status(False))
+                    
                     if resp.get("status") == "success":
                         self.root.after(0, lambda: self.add_log("Message sent"))
-                        dialog.destroy()
+                        self.root.after(0, dialog.destroy)
                     else:
                         self.root.after(0, lambda: self.add_log(f"Send error: {resp.get('message')}"))
+            
             threading.Thread(target=send_bg, daemon=True).start()
 
         send_btn = ctk.CTkButton(frame, text="Send", command=do_send)

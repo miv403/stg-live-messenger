@@ -6,7 +6,7 @@ import base64
 import os
 import tempfile
 from PIL import Image
-from password import hash_password, derive_des_key, get_password_hash_prefix, decrypt_des_cbc
+from password import hash_password, derive_des_key, get_password_hash_prefix, decrypt_des_cbc, encrypt_des_cbc
 from steganography import encode_hash_in_image
 
 
@@ -278,7 +278,10 @@ class Client:
         return self.des_key
 
     def send_message(self, to_username, plaintext):
-        """Send a plaintext message to recipient. Server encrypts with recipient key.
+        """Send a message to recipient.
+        
+        Client encrypts the message with SENDER's key (self.des_key).
+        Server will decrypt it with sender's key and re-encrypt with recipient's key.
         
         Args:
             to_username: Recipient username
@@ -290,18 +293,47 @@ class Client:
             return {"status": "error", "message": "Not connected to server"}
         if not self.current_username:
             return {"status": "error", "message": "Not logged in"}
+        if not self.des_key:
+            return {"status": "error", "message": "No encryption key available"}
+            
         try:
+            # Encrypt with SENDER's key
+            iv_ct = encrypt_des_cbc(self.des_key, plaintext)
+            import base64
+            body_b64 = base64.b64encode(iv_ct).decode('utf-8')
+
             req = {
                 "action": "REQ::SEND",
                 "from": self.current_username,
                 "to": to_username,
-                "body": plaintext,
+                "body": body_b64,
             }
             self.zeromq_socket.send_string(json.dumps(req))
             resp = json.loads(self.zeromq_socket.recv_string())
             return resp
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def get_users(self):
+        """Get list of registered users from server.
+        
+        Returns:
+            list: List of usernames on success, or empty list on error
+        """
+        if not self.zeromq_socket:
+            return []
+        
+        try:
+            req = {"action": "REQ::GET_USERS"}
+            self.zeromq_socket.send_string(json.dumps(req))
+            resp = json.loads(self.zeromq_socket.recv_string())
+            
+            if resp.get("status") == "success":
+                return resp.get("users", [])
+            return []
+        except Exception as e:
+            print(f"Error getting users: {e}")
+            return []
 
     def fetch_messages(self):
         """Fetch messages for the logged-in user and decrypt using stored DES key.

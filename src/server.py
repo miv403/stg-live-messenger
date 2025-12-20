@@ -57,12 +57,13 @@ def get_local_ip():
 class Server:
     """Server class for encrypted mail program with mDNS service registration."""
     
-    def __init__(self, server_id="stgserver", port=6161):
+    def __init__(self, server_id="stgserver", port=6161, zeromq_port=6162):
         """Initialize the server.
         
         Args:
             server_id: Server ID for mDNS registration (default: "stgserver")
-            port: Server port (default: 6161)
+            port: Server port for mDNS service (default: 6161)
+            zeromq_port: Port for ZeroMQ server (default: 6162)
         """
         self.server_id = server_id
         self.port = port
@@ -72,7 +73,7 @@ class Server:
         self.service_thread = None
         self.zeromq_thread = None
         self.running = False
-        self.zeromq_port = 6162
+        self.zeromq_port = zeromq_port
         
         # Initialize databases and directories
         self._init_directories()
@@ -207,20 +208,20 @@ class Server:
         self.stop()
         sys.exit(0)
     
-    def handle_register(self, username):
-        """Handle user registration request.
-        
-        Args:
-            username: Username to register
-            
-        Returns:
-            bool: True if registration successful, False otherwise
-        """
-        # TODO: Implement user registration functionality
-        self.logger.log("REGISTER", f"{username} wants to be registered.")
-        # Placeholder for registration logic
-        self.logger.log("REGISTER", "Registering successful.")
-        return True
+    # def handle_register(self, username):
+    #     """Handle user registration request.
+    #     
+    #     Args:
+    #         username: Username to register
+    #         
+    #     Returns:
+    #         bool: True if registration successful, False otherwise
+    #     """
+    #     # TODO: Implement user registration functionality
+    #     self.logger.log("REGISTER", f"{username} wants to be registered.")
+    #     # Placeholder for registration logic
+    #     self.logger.log("REGISTER", "Registering successful.")
+    #     return True
     
     def _start_zeromq_server(self):
         """Start ZeroMQ REP socket server."""
@@ -282,6 +283,8 @@ class Server:
             return self._handle_send(request)
         elif action == "REQ::FETCH":
             return self._handle_fetch(request)
+        elif action == "REQ::GET_USERS":
+            return self._handle_get_users(request)
         else:
             return {"status": "error", "message": f"Unknown action: {action}"}
     
@@ -485,33 +488,55 @@ class Server:
     def _handle_send(self, request):
         """Handle send message request.
         
-        Expected request: {"action":"REQ::SEND","from":"<sender>","to":"<recipient>","body":"<plaintext>"}
+        Expected request: {"action":"REQ::SEND","from":"<sender>","to":"<recipient>","body":"<encrypted_body_b64>"}
+        body is encrypted with SENDER's key.
         """
         try:
             sender = request.get("from")
             recipient = request.get("to")
-            body = request.get("body")
-            if not sender or not recipient or body is None:
+            body_b64 = request.get("body")
+            if not sender or not recipient or body_b64 is None:
                 return {"status": "error", "message": "Missing fields"}
 
-            # Validate users exist
+            # Validate users exist and get keys
             conn = sqlite3.connect(Const.USERS_DB)
             cur = conn.cursor()
-            cur.execute("SELECT 1 FROM users WHERE username=?", (sender,))
-            if not cur.fetchone():
+            
+            # Check sender and get key
+            # cur.execute("SELECT 1 FROM users WHERE username=?", (sender,))
+            # if not cur.fetchone():
+            #     conn.close()
+            #     return {"status": "error", "message": "Sender not found"}
+            sender_key = self.get_user_des_key(sender)
+            if not sender_key:
                 conn.close()
-                return {"status": "error", "message": "Sender not found"}
-            cur.execute("SELECT 1 FROM users WHERE username=?", (recipient,))
-            if not cur.fetchone():
+                return {"status": "error", "message": "Sender not found or key unavailable"}
+
+            # Check recipient and get key
+            # cur.execute("SELECT 1 FROM users WHERE username=?", (recipient,))
+            # if not cur.fetchone():
+            #     conn.close()
+            #     return {"status": "error", "message": "Recipient not found"}
+            recipient_key = self.get_user_des_key(recipient) # This function opens its own connection, optimized to minimal
+            if not recipient_key:
                 conn.close()
-                return {"status": "error", "message": "Recipient not found"}
+                return {"status": "error", "message": "Recipient not found or key unavailable"}
+            
             conn.close()
 
-            # Derive recipient DES key and encrypt
-            des_key = self.get_user_des_key(recipient)
-            if not des_key:
-                return {"status": "error", "message": "Failed to derive recipient key"}
-            iv_ct = encrypt_des_cbc(des_key, body)
+            # Decrypt with SENDER key
+            from password import decrypt_des_cbc
+            import base64
+            try:
+                encrypted_body = base64.b64decode(body_b64)
+                plaintext_body = decrypt_des_cbc(sender_key, encrypted_body)
+            except Exception as e:
+                self.logger.error(f"Decryption failed for message from {sender}: {e}")
+                return {"status": "error", "message": "Server could not decrypt message with sender key"}
+
+            # Encrypt with RECIPIENT key
+            # iv_ct = encrypt_des_cbc(des_key, body)
+            iv_ct = encrypt_des_cbc(recipient_key, plaintext_body)
 
             # Store in mailbox
             import datetime
@@ -526,6 +551,23 @@ class Server:
             return {"status": "success", "message": "Message stored"}
         except Exception as e:
             self.logger.error(f"Send error: {e}")
+            return {"status": "error", "message": str(e)}
+
+    def _handle_get_users(self, request):
+        """Handle request to get list of registered users.
+        
+        Expected request: {"action":"REQ::GET_USERS"}
+        Returns: {"status":"success", "users":["user1", "user2", ...]}
+        """
+        try:
+            conn = sqlite3.connect(Const.USERS_DB)
+            cur = conn.cursor()
+            cur.execute("SELECT username FROM users")
+            users = [row[0] for row in cur.fetchall()]
+            conn.close()
+            return {"status": "success", "users": users}
+        except Exception as e:
+            self.logger.error(f"Get users error: {e}")
             return {"status": "error", "message": str(e)}
 
     def _handle_fetch(self, request):
