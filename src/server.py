@@ -208,21 +208,6 @@ class Server:
         self.stop()
         sys.exit(0)
     
-    # def handle_register(self, username):
-    #     """Handle user registration request.
-    #     
-    #     Args:
-    #         username: Username to register
-    #         
-    #     Returns:
-    #         bool: True if registration successful, False otherwise
-    #     """
-    #     # TODO: Implement user registration functionality
-    #     self.logger.log("REGISTER", f"{username} wants to be registered.")
-    #     # Placeholder for registration logic
-    #     self.logger.log("REGISTER", "Registering successful.")
-    #     return True
-    
     def _start_zeromq_server(self):
         """Start ZeroMQ REP socket server."""
         try:
