@@ -460,13 +460,19 @@ class LoginScreen:
         self.setup_right_containers(self.main_frame)
 
     def update_messages_table(self, messages):
-        """Render messages in the textbox as two columns: from, body."""
+        """Render messages in the textbox with from, title, and body."""
         self.messages_list.configure(state="normal")
         self.messages_list.delete("1.0", "end")
         for m in messages:
             frm = m.get("from", "?")
+            title = m.get("title", "")
             body = m.get("body", "")
-            self.messages_list.insert("end", f"From: {frm}\n{body}\n\n")
+            
+            # Display with title if present
+            if title:
+                self.messages_list.insert("end", f"From: {frm}\nTitle: {title}\n{body}\n\n")
+            else:
+                self.messages_list.insert("end", f"From: {frm}\n{body}\n\n")
         self.messages_list.configure(state="disabled")
 
     def on_refresh_click(self):
@@ -516,7 +522,7 @@ class LoginScreen:
 
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Send Message")
-        dialog.geometry("400x250")
+        dialog.geometry("400x350")
         
         # Lift window and set focus
         dialog.lift()
@@ -534,12 +540,17 @@ class LoginScreen:
         to_menu = ctk.CTkOptionMenu(frame, variable=to_var, values=users)
         to_menu.pack(fill="x", pady=(0,10))
 
+        ctk.CTkLabel(frame, text="Title:").pack(anchor="w")
+        title_entry = ctk.CTkEntry(frame)
+        title_entry.pack(fill="x", pady=(0,10))
+
         ctk.CTkLabel(frame, text="Message:").pack(anchor="w")
         body_text = ctk.CTkTextbox(frame, height=80)
         body_text.pack(fill="both")
 
         def do_send():
             to_user = to_var.get()
+            title = title_entry.get().strip()
             body = body_text.get("1.0", "end").strip()
             if not to_user or not body:
                 self.add_log("Provide recipient and message body")
@@ -554,7 +565,7 @@ class LoginScreen:
             def send_bg():
                 if self.client.connect_to_server(server_address):
                     self.root.after(0, lambda: self.update_connection_status(True))
-                    resp = self.client.send_message(to_user, body)
+                    resp = self.client.send_message(to_user, body, title)
                     self.client.disconnect()
                     self.root.after(0, lambda: self.update_connection_status(False))
                     

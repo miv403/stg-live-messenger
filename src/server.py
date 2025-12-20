@@ -130,6 +130,7 @@ class Server:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 to_username TEXT NOT NULL,
                 from_username TEXT NOT NULL,
+                title TEXT,
                 body BLOB NOT NULL,
                 created_at TEXT NOT NULL
             )
@@ -369,8 +370,8 @@ class Server:
                     cur_mb = conn_mb.cursor()
                     import datetime
                     cur_mb.execute(
-                        "INSERT INTO mailbox (to_username, from_username, body, created_at) VALUES (?, ?, ?, ?)",
-                        (username, "server", iv_ct, datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z")
+                        "INSERT INTO mailbox (to_username, from_username, title, body, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (username, "server", "Welcome!", iv_ct, datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z")
                     )
                     conn_mb.commit()
                     conn_mb.close()
@@ -473,12 +474,13 @@ class Server:
     def _handle_send(self, request):
         """Handle send message request.
         
-        Expected request: {"action":"REQ::SEND","from":"<sender>","to":"<recipient>","body":"<encrypted_body_b64>"}
+        Expected request: {"action":"REQ::SEND","from":"<sender>","to":"<recipient>","title":"<title>","body":"<encrypted_body_b64>"}
         body is encrypted with SENDER's key.
         """
         try:
             sender = request.get("from")
             recipient = request.get("to")
+            title = request.get("title", "")  # Title is optional, defaults to empty string
             body_b64 = request.get("body")
             if not sender or not recipient or body_b64 is None:
                 return {"status": "error", "message": "Missing fields"}
@@ -523,13 +525,13 @@ class Server:
             # iv_ct = encrypt_des_cbc(des_key, body)
             iv_ct = encrypt_des_cbc(recipient_key, plaintext_body)
 
-            # Store in mailbox
+            # Store in mailbox with title
             import datetime
             conn_mb = sqlite3.connect(Const.MAILBOX_DB)
             cur_mb = conn_mb.cursor()
             cur_mb.execute(
-                "INSERT INTO mailbox (to_username, from_username, body, created_at) VALUES (?, ?, ?, ?)",
-                (recipient, sender, iv_ct, datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z")
+                "INSERT INTO mailbox (to_username, from_username, title, body, created_at) VALUES (?, ?, ?, ?, ?)",
+                (recipient, sender, title, iv_ct, datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z")
             )
             conn_mb.commit()
             conn_mb.close()
@@ -575,18 +577,18 @@ class Server:
                 return {"status": "error", "message": "User not found"}
             conn.close()
 
-            # Fetch messages
+            # Fetch messages with title
             conn_mb = sqlite3.connect(Const.MAILBOX_DB)
             cur_mb = conn_mb.cursor()
             cur_mb.execute(
-                "SELECT from_username, body, created_at FROM mailbox WHERE to_username=? ORDER BY id ASC",
+                "SELECT from_username, title, body, created_at FROM mailbox WHERE to_username=? ORDER BY id ASC",
                 (username,)
             )
             rows = cur_mb.fetchall()
             conn_mb.close()
             import base64
             messages = [
-                {"from": r[0], "body": base64.b64encode(r[1]).decode("ascii"), "created_at": r[2]}
+                {"from": r[0], "title": r[1] or "", "body": base64.b64encode(r[2]).decode("ascii"), "created_at": r[3]}
                 for r in rows
             ]
             return {"status": "success", "messages": messages}

@@ -277,7 +277,7 @@ class Client:
         """
         return self.des_key
 
-    def send_message(self, to_username, plaintext):
+    def send_message(self, to_username, plaintext, title=""):
         """Send a message to recipient.
         
         Client encrypts the message with SENDER's key (self.des_key).
@@ -286,6 +286,7 @@ class Client:
         Args:
             to_username: Recipient username
             plaintext: Message body string
+            title: Message title (optional)
         Returns:
             dict: Response with status/message
         """
@@ -306,6 +307,7 @@ class Client:
                 "action": "REQ::SEND",
                 "from": self.current_username,
                 "to": to_username,
+                "title": title,
                 "body": body_b64,
             }
             self.zeromq_socket.send_string(json.dumps(req))
@@ -339,7 +341,7 @@ class Client:
         """Fetch messages for the logged-in user and decrypt using stored DES key.
         
         Returns:
-            dict: {"status":"success","messages":[{"from":str,"body":str,"created_at":str}]} or error
+            dict: {"status":"success","messages":[{"from":str,"title":str,"body":str,"created_at":str}]} or error
         """
         if not self.zeromq_socket:
             return {"status": "error", "message": "Not connected to server"}
@@ -357,9 +359,19 @@ class Client:
                 try:
                     raw = base64.b64decode(m.get("body", ""))
                     body = decrypt_des_cbc(self.des_key, raw)
-                    decrypted.append({"from": m.get("from"), "body": body, "created_at": m.get("created_at")})
+                    decrypted.append({
+                        "from": m.get("from"), 
+                        "title": m.get("title", ""), 
+                        "body": body, 
+                        "created_at": m.get("created_at")
+                    })
                 except Exception as e:
-                    decrypted.append({"from": m.get("from"), "body": f"<decrypt error: {e}>", "created_at": m.get("created_at")})
+                    decrypted.append({
+                        "from": m.get("from"), 
+                        "title": m.get("title", ""), 
+                        "body": f"<decrypt error: {e}>", 
+                        "created_at": m.get("created_at")
+                    })
             return {"status": "success", "messages": decrypted}
         except Exception as e:
             return {"status": "error", "message": str(e)}
