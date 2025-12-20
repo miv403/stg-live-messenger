@@ -1,6 +1,7 @@
 *.drawio
 *.pdf
 *.png
+*.jpg
 *.svg
 .cursor/
 .vscode/
