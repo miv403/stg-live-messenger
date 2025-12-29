@@ -321,11 +321,38 @@ class Client:
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
+    def logout(self):
+        """Logout the current user.
+        
+        Returns:
+            dict: Response with status/message
+        """
+        if not self.zeromq_socket:
+            return {"status": "error", "message": "Not connected to server"}
+        if not self.current_username:
+            return {"status": "error", "message": "Not logged in"}
+        
+        try:
+            req = {
+                "action": "REQ::LOGOUT",
+                "username": self.current_username
+            }
+            self.zeromq_socket.send_string(json.dumps(req))
+            resp = json.loads(self.zeromq_socket.recv_string())
+            
+            # Clear local session
+            self.current_username = None
+            self.des_key = None
+            
+            return resp
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     def get_users(self):
         """Get list of registered users from server.
         
         Returns:
-            list: List of usernames on success, or empty list on error
+            list: List of dicts [{"username": str, "online": bool}]
         """
         if not self.zeromq_socket:
             return []

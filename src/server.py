@@ -106,7 +106,8 @@ class Server:
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
                 password_hash TEXT NOT NULL,
-                picture_path TEXT NOT NULL
+                picture_path TEXT NOT NULL,
+                is_online INTEGER DEFAULT 0
             )
         ''')
         
@@ -115,7 +116,16 @@ class Server:
             cursor.execute('ALTER TABLE users ADD COLUMN password_hash TEXT')
             # Copy key to password_hash for existing records
             cursor.execute('UPDATE users SET password_hash = key WHERE password_hash IS NULL')
-            # Optionally drop key column (keep for now for compatibility)
+        
+        # Add is_online column if missing
+        if 'is_online' not in columns:
+            try:
+                cursor.execute('ALTER TABLE users ADD COLUMN is_online INTEGER DEFAULT 0')
+            except:
+                pass
+
+        # Reset online status for all users on startup
+        cursor.execute("UPDATE users SET is_online = 0")
         
         conn.commit()
         conn.close()
@@ -271,8 +281,29 @@ class Server:
             return self._handle_fetch(request)
         elif action == "REQ::GET_USERS":
             return self._handle_get_users(request)
+        elif action == "REQ::LOGOUT":
+            return self._handle_logout(request)
         else:
             return {"status": "error", "message": f"Unknown action: {action}"}
+    
+    def _handle_logout(self, request):
+        """Handle logout request."""
+        try:
+            username = request.get("username")
+            if not username:
+                return {"status": "error", "message": "Missing username"}
+            
+            conn = sqlite3.connect(Const.USERS_DB)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_online = 0 WHERE username = ?", (username,))
+            conn.commit()
+            conn.close()
+            
+            self.logger.log("LOGOUT", f"{username} logged out")
+            return {"status": "success", "message": "Logged out successfully"}
+        except Exception as e:
+            self.logger.error(f"Logout error: {e}")
+            return {"status": "error", "message": str(e)}
     
     def _handle_register(self, request):
         """Handle registration request.
@@ -426,6 +457,12 @@ class Server:
                 return {"status": "error", "message": "Invalid username or password"}
             
             # Login successful - DES key can be derived using get_user_des_key() when needed
+            conn = sqlite3.connect(Const.USERS_DB)
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET is_online = 1 WHERE username = ?", (username,))
+            conn.commit()
+            conn.close()
+            
             self.logger.log("LOGIN", f"{username} logged in successfully")
             return {"status": "success", "message": "Login successful"}
             
@@ -549,8 +586,8 @@ class Server:
         try:
             conn = sqlite3.connect(Const.USERS_DB)
             cur = conn.cursor()
-            cur.execute("SELECT username FROM users")
-            users = [row[0] for row in cur.fetchall()]
+            cur.execute("SELECT username, is_online FROM users")
+            users = [{"username": row[0], "online": bool(row[1])} for row in cur.fetchall()]
             conn.close()
             return {"status": "success", "users": users}
         except Exception as e:

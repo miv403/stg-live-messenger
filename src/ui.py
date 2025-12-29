@@ -3,6 +3,7 @@ from tkinter import filedialog
 from pathlib import Path
 from PIL import Image
 import os
+import sys
 import threading
 import hashlib
 from client import Client
@@ -32,6 +33,25 @@ class LoginScreen:
         
         # Start server discovery in background thread
         self.discover_servers()
+        
+        # Handle close listener
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+    
+    def on_close(self):
+        """Handle window closing."""
+        if self.client and self.client.current_username and self.discovered_servers:
+            # Attempt logout call (short timeout/async attempt)
+            server_address = self.discovered_servers[0].get('address')
+            try:
+                # We do this synchronously but with a very short timeout concept if possible
+                # But since we are closing, we'll just try to fire it
+                if self.client.connect_to_server(server_address):
+                   self.client.logout()
+                   self.client.disconnect()
+            except:
+                pass
+        self.root.destroy()
+        sys.exit(0)
     
     def center_window(self):
         """Center the window on the screen"""
@@ -440,18 +460,23 @@ class LoginScreen:
         inner = ctk.CTkFrame(container, fg_color="transparent")
         inner.pack(fill="both", expand=True, padx=30, pady=30)
 
-        header = ctk.CTkLabel(inner, text="Mailbox", font=ctk.CTkFont(size=18, weight="bold"))
+        username = self.username_var.get().strip()
+        title_text = f"{username}'s Mailbox" if username else "Mailbox"
+        header = ctk.CTkLabel(inner, text=title_text, font=ctk.CTkFont(size=18, weight="bold"))
         header.pack(anchor="w", pady=(0, 10))
 
         # Buttons
         btn_frame = ctk.CTkFrame(inner, fg_color="transparent")
         btn_frame.pack(fill="x", pady=(0, 10))
 
-        refresh_btn = ctk.CTkButton(btn_frame, text="Refresh", width=100, command=self.on_refresh_click)
+        refresh_btn = ctk.CTkButton(btn_frame, text="Refresh", width=80, command=self.on_refresh_click)
         refresh_btn.pack(side="left")
 
-        send_btn = ctk.CTkButton(btn_frame, text="Send", width=100, command=self.on_send_click)
+        send_btn = ctk.CTkButton(btn_frame, text="Send", width=80, command=self.on_send_click)
         send_btn.pack(side="left", padx=(10, 0))
+        
+        logout_btn = ctk.CTkButton(btn_frame, text="Logout", width=80, fg_color="red", command=self.on_logout_click)
+        logout_btn.pack(side="right")
 
         # Messages table-like view (two columns)
         self.messages_list = ctk.CTkTextbox(inner, height=360)
@@ -510,15 +535,64 @@ class LoginScreen:
             
             # Filter current user
             current = self.username_var.get()
-            users = [u for u in users if u != current]
+            users = [u for u in users if u.get("username") != current]
             
             self.root.after(0, lambda: self._show_send_dialog(users))
             
         threading.Thread(target=fetch_users, daemon=True).start()
 
+    def on_logout_click(self):
+        """Handle logout click"""
+        if not self.discovered_servers:
+            self.setup_ui() # Just reset UI if no server
+            return
+            
+        server_address = self.discovered_servers[0].get('address')
+        
+        def do_logout():
+            if self.client.connect_to_server(server_address):
+                self.client.logout()
+                self.client.disconnect()
+            
+            # Reset UI to login screen
+            self.root.after(0, lambda: self.reset_to_login())
+            self.root.after(0, lambda: self.add_log("Logged out"))
+            
+        threading.Thread(target=do_logout, daemon=True).start()
+
+    def reset_to_login(self):
+        """Reset the UI to login screen."""
+        # Destroy current UI first
+        if hasattr(self, 'main_frame') and self.main_frame:
+            self.main_frame.destroy()
+            
+        # Re-initialize variables to detach from any destroyed callbacks/traces
+        self.username_var = ctk.StringVar()
+        self.password_var = ctk.StringVar()
+        self.register_mode = False
+
+        self.setup_ui()
+        # Restore server list view
+        self.update_server_list(self.discovered_servers)
+
     def _show_send_dialog(self, users):
         if not users:
             self.add_log("No other users found to message")
+            return
+        
+        # users is list of dicts: {"username": ..., "online": ...}
+        # Create display strings
+        display_users = []
+        user_map = {} # Display name -> Username
+        for u in users:
+            username = u.get("username")
+            status = " (Online)" if u.get("online") else " (Offline)"
+            display = f"{username}{status}"
+            display_users.append(display)
+            user_map[display] = username
+            
+        if not display_users:
+            self.add_log("No other users found")
             return
 
         dialog = ctk.CTkToplevel(self.root)
@@ -537,8 +611,8 @@ class LoginScreen:
 
         ctk.CTkLabel(frame, text="To:").pack(anchor="w")
         
-        to_var = ctk.StringVar(value=users[0] if users else "")
-        to_menu = ctk.CTkOptionMenu(frame, variable=to_var, values=users)
+        to_var = ctk.StringVar(value=display_users[0] if display_users else "")
+        to_menu = ctk.CTkOptionMenu(frame, variable=to_var, values=display_users)
         to_menu.pack(fill="x", pady=(0,10))
 
         ctk.CTkLabel(frame, text="Title:").pack(anchor="w")
@@ -550,7 +624,9 @@ class LoginScreen:
         body_text.pack(fill="both")
 
         def do_send():
-            to_user = to_var.get()
+            selected_display = to_var.get()
+            to_user = user_map.get(selected_display)
+                
             title = title_entry.get().strip()
             body = body_text.get("1.0", "end").strip()
             if not to_user or not body:
