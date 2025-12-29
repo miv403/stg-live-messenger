@@ -13,6 +13,7 @@
 ## Message Structure
 
 Messages in STG Live Messenger now support the following fields:
+
 - **From**: Sender username
 - **To**: Recipient username
 - **Title**: Optional message title/subject
@@ -22,4 +23,3 @@ Messages in STG Live Messenger now support the following fields:
 ## Login Screen
 
 ![login screen](./img/login-screen.png)
-
