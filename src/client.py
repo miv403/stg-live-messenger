@@ -213,12 +213,17 @@ class Client:
             response_str = self.zeromq_socket.recv_string()
             response = json.loads(response_str)
             
-            # Clean up temporary files
-            for p in (encoded_picture_path, source_png_path):
-                try:
-                    os.remove(p)
-                except:
-                    pass
+            # If successful, return paths to images for UI visualization
+            if response.get("status") == "success":
+                response["source_path"] = source_png_path
+                response["encoded_path"] = encoded_picture_path
+            else:
+                # Clean up temporary files on failure
+                for p in (encoded_picture_path, source_png_path):
+                    try:
+                        os.remove(p)
+                    except:
+                        pass
             
             return response
             

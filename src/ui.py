@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image
 import os
 import threading
+import hashlib
 from client import Client
 
 
@@ -650,6 +651,13 @@ class LoginScreen:
             # Handle response
             if response.get("status") == "success":
                 self.root.after(0, lambda: self.add_log(f"Registration successful for {username}"))
+                
+                # Show comparison window if paths are returned
+                source_path = response.get("source_path")
+                encoded_path = response.get("encoded_path")
+                if source_path and encoded_path:
+                     self.root.after(0, lambda: self.show_comparison_window(source_path, encoded_path))
+                
                 # Reset form
                 self.root.after(0, self.on_register_cancel)
             else:
@@ -693,6 +701,75 @@ class LoginScreen:
             self.add_log(f"Profile picture selected: {file_name}")
             print(f"Selected image: {file_path}")
     
+    def show_comparison_window(self, source_path, encoded_path):
+        """Show window comparing original and encoded images with their hashes."""
+        window = ctk.CTkToplevel(self.root)
+        window.title("Steganography Result")
+        window.geometry("800x600")
+        
+        # Make modal
+        window.transient(self.root)
+        window.lift()
+        
+        # Calculate hashes
+        def get_file_hash(path):
+            sha256 = hashlib.sha256()
+            with open(path, 'rb') as f:
+                while True:
+                    data = f.read(65536)
+                    if not data:
+                        break
+                    sha256.update(data)
+            return sha256.hexdigest()
+
+        source_hash = get_file_hash(source_path)
+        encoded_hash = get_file_hash(encoded_path)
+        
+        # Container
+        container = ctk.CTkFrame(window)
+        container.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Helper to create image frame
+        def create_image_panel(parent, path, hash_val, title):
+            frame = ctk.CTkFrame(parent, fg_color="transparent")
+            frame.pack(side="left", fill="both", expand=True, padx=10)
+            
+            ctk.CTkLabel(frame, text=title, font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(0, 10))
+            
+            # Load and resize image
+            pil_img = Image.open(path)
+            # Calculate resize keeping aspect ratio
+            max_size = (350, 350)
+            pil_img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            ctk_img = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=pil_img.size)
+            
+            img_label = ctk.CTkLabel(frame, image=ctk_img, text="")
+            img_label.pack(pady=10)
+            
+            # Hash label
+            ctk.CTkLabel(frame, text="SHA-256 Hash:", font=ctk.CTkFont(weight="bold")).pack(pady=(10, 0))
+            
+            # Textbox for hash (easier to copy/read)
+            hash_box = ctk.CTkTextbox(frame, height=60, width=300)
+            hash_box.pack(pady=5)
+            hash_box.insert("1.0", hash_val)
+            hash_box.configure(state="disabled")
+
+        create_image_panel(container, source_path, source_hash, "Original Image")
+        create_image_panel(container, encoded_path, encoded_hash, "Encoded Image")
+
+        # Cleanup files when window closes
+        def on_close():
+            try:
+                if os.path.exists(source_path): os.remove(source_path)
+                if os.path.exists(encoded_path): os.remove(encoded_path)
+            except:
+                pass
+            window.destroy()
+            
+        window.protocol("WM_DELETE_WINDOW", on_close)
+
     def run(self):
         """Start the GUI main loop"""
         self.root.mainloop()
