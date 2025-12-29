@@ -65,6 +65,18 @@ class Client:
         self.des_key = None  # Store DES key after login/registration
         self.current_username = None  # Store current logged-in username
     
+    def get_local_ip(self):
+        """Get the local IP address."""
+        try:
+            # Connect to a remote address to determine local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except Exception:
+            return "127.0.0.1"
+    
     def discover_servers(self, timeout=5):
         """Discover all available stgserver services on the LAN.
         
@@ -254,7 +266,8 @@ class Client:
             request = {
                 "action": "REQ::LOGIN",
                 "username": username,
-                "password_hash_prefix": base64.b64encode(hash_prefix).decode('utf-8')
+                "password_hash_prefix": base64.b64encode(hash_prefix).decode('utf-8'),
+                "ip_address": self.get_local_ip()
             }
             
             # 4. Send request

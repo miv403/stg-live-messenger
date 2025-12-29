@@ -124,6 +124,13 @@ class Server:
             except:
                 pass
 
+        # Add ip_address column if missing
+        if 'ip_address' not in columns:
+            try:
+                cursor.execute('ALTER TABLE users ADD COLUMN ip_address TEXT')
+            except:
+                pass
+
         # Reset online status for all users on startup
         cursor.execute("UPDATE users SET is_online = 0")
         
@@ -260,6 +267,29 @@ class Server:
         except Exception as e:
             self.logger.error(f"ZeroMQ server error: {e}")
     
+    def _print_online_users(self):
+        """Print list of online users to console."""
+        try:
+            conn = sqlite3.connect(Const.USERS_DB)
+            cursor = conn.cursor()
+            cursor.execute("SELECT username, ip_address FROM users WHERE is_online = 1")
+            rows = cursor.fetchall()
+            conn.close()
+            
+            print("\n=== Online Users ===")
+            if not rows:
+                print("No users online")
+            else:
+                print(f"{'Username':<20} {'IP Address':<15}")
+                print("-" * 35)
+                for row in rows:
+                    username = row[0]
+                    ip = row[1] if row[1] else "Unknown"
+                    print(f"{username:<20} {ip:<15}")
+            print("====================\n")
+        except Exception as e:
+            print(f"Error printing online users: {e}")
+
     def _handle_request(self, request):
         """Handle incoming request and route to appropriate handler.
         
@@ -300,6 +330,8 @@ class Server:
             conn.close()
             
             self.logger.log("LOGOUT", f"{username} logged out")
+            self._print_online_users()
+            
             return {"status": "success", "message": "Logged out successfully"}
         except Exception as e:
             self.logger.error(f"Logout error: {e}")
@@ -459,11 +491,16 @@ class Server:
             # Login successful - DES key can be derived using get_user_des_key() when needed
             conn = sqlite3.connect(Const.USERS_DB)
             cursor = conn.cursor()
-            cursor.execute("UPDATE users SET is_online = 1 WHERE username = ?", (username,))
+            
+            ip_address = request.get("ip_address", "Unknown")
+            cursor.execute("UPDATE users SET is_online = 1, ip_address = ? WHERE username = ?", (ip_address, username))
+            
             conn.commit()
             conn.close()
             
             self.logger.log("LOGIN", f"{username} logged in successfully")
+            self._print_online_users()
+            
             return {"status": "success", "message": "Login successful"}
             
         except Exception as e:
