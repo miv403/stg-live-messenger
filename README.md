@@ -23,3 +23,27 @@ Messages in STG Live Messenger now support the following fields:
 ## Login Screen
 
 ![login screen](./img/login-screen.png)
+
+## Dependicies
+
+> [!WARNING]
+> Use `pycryptodome` instead of `pycrypto`
+
+```text
+certifi==2025.11.12
+charset-normalizer==3.4.4
+customtkinter==5.2.2
+darkdetect==0.8.0
+idna==3.11
+ifaddr==0.2.0
+Naked==0.1.32
+packaging==25.0
+pillow==12.0.0
+pycryptodome==3.23.0
+PyYAML==6.0.3
+pyzmq==27.1.0
+requests==2.32.5
+shellescape==3.8.1
+urllib3==2.5.0
+zeroconf==0.148.0
+```
